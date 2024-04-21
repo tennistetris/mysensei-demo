@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"math"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/netip"
@@ -36,6 +37,7 @@ import (
 )
 
 var mode string = gin.DebugMode
+var callCounter int = 0
 
 type Server struct {
 	addr net.Addr
@@ -1074,6 +1076,7 @@ func (s *Server) GenerateRoutes() http.Handler {
 	r.POST("/api/show", ShowModelHandler)
 	r.POST("/api/blobs/:digest", CreateBlobHandler)
 	r.HEAD("/api/blobs/:digest", HeadBlobHandler)
+	r.POST("/api/demo/hardcoded", DemoHandler)
 
 	// Compatibility endpoints
 	r.POST("/v1/chat/completions", openai.Middleware(), ChatHandler)
@@ -1230,6 +1233,59 @@ func chatPrompt(ctx context.Context, template string, messages []api.Message, nu
 	}
 
 	return prompt, nil
+}
+
+func DemoHandler(c *gin.Context) {
+	ch := make(chan any)
+	defer func() {callCounter++}()
+
+	dummyTextArr := []string{
+		"Hi. This is MySensei, your personal tutor for learning Geometry with Prof. Sharba Chatterjee. How can I help you today? ",
+		"Sure. I am generating a video to ensure you understand it thoroughly.",
+		"No worries! I have got you covered...",
+		"Sure thing. Here's an assignment consisting of relevant questions.",
+		"This looks great, buddy! I have highlighted a few points of improvement in the pdf below.",
+	}
+
+	go func() {
+		defer close(ch)
+
+		dummyText := dummyTextArr[callCounter]
+
+		dummyTextSplitGroups := func(text string) [][]string {
+			words := strings.Fields(text)
+
+			var groups [][]string
+			start := 0
+			for start < len(words) {
+				length := rand.Intn(5) + 1 // random length between 1 and 5
+				end := start + length
+				if end > len(words) {
+					end = len(words)
+				}
+				groups = append(groups, words[start:end])
+				start = end
+			}
+
+			return groups
+		}(dummyText)
+
+		for i, group := range dummyTextSplitGroups {
+			randomSleepTimer := time.Duration(rand.Intn(300)+100) * time.Millisecond // random sleep between 100 and 400 ms
+			time.Sleep(randomSleepTimer)
+			done := i == len(dummyTextSplitGroups)-1
+			groupStr := strings.Join(group, " ") + " " // Note:- Add an extra space at the end to separate groups
+			resp := api.ChatResponse{
+				Model:     "llama2",
+				CreatedAt: time.Now().UTC(),
+				Message:   api.Message{Role: "assistant", Content: groupStr},
+				Done:      done,
+			}
+			ch <- resp
+		}
+	}()
+
+	streamResponse(c, ch)
 }
 
 func ChatHandler(c *gin.Context) {
